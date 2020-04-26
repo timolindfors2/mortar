@@ -1,21 +1,32 @@
 # Mortar  
 Framework to join Linux's physical security bricks. Mortar is essentially Linux-native TPM-backed Bitlocker.  
 
-UNDER HEAVY DEVELOPMENT.  
-Debian - LUKS2(and luks1 assumed) + TPM1.2 working.  
-Debian - LUKS2 + TPM2 working.
+|          | LUKS1 | LUKS2 | TPM1.2 | TPM2 (clevis) | TPM2 (non-clevis) |
+|----------|-------|-------|--------|------|------|
+| Debian   | *     | X     | X      | X    |      |
+| [CentOS](https://github.com/noahbliss/mortar/blob/master/docs/centos-install.md)   |       |       |        | !    |      |
+| Arch     | X    | *      |        | X    |      |
+| OpenSUSE |       |       |        |      |      |
+| Fedora   |       |       |        |      |      |  
+| [Ubuntu](https://github.com/noahbliss/mortar/blob/master/docs/ubuntu-install.md)   | X      | *     |        | X      |      |  
+
+*=insufficiently tested, but presumed working  
+!=in progress
 
 ## What is it?  
 Mortar is an attempt to take the headache and fragmented processes out of joining Secureboot, TPM keys, and LUKS.  
 
-Through the "Mortar Model" everything on disk that is used is either encrypted, signed, or hashed. The TPM is used to effectively whitelist certain boot states. Disks are automatically unlocked once the boot sequence has been validated. This makes full-disk encryption dramatically more convenient for end-users and viable on servers (as they can automatically unlock on reboot).  
+**Through the "Mortar Model" everything on disk that is used is either encrypted, signed, or hashed.** The TPM is used to effectively whitelist certain boot states. Disks are automatically unlocked once the boot sequence has been validated. This makes full-disk encryption dramatically more convenient for end-users and viable on servers (as they can automatically unlock on reboot).  
+
 Mortar aims to support both TPM 1.2 (via its own implementation) and TPM 2 (via clevis).
 
-LUKS1 and LUKS2 are both supported by intelligently selecting different implementation paths based on your current setup.  
+LUKS1 and LUKS2 are both supported.  
 
 Mortar aims to be distribution agnostic. Initial developments are on Arch Linux and Debian Linux.  
 
-Security note with TPM2: Clevis allows anyone with root access to fetch sufficent private data to decrypt the drive. Protect the root account. With TPM1.2 Mortar leverages READ_STCLEAR to make this more difficult (thanks morbitzer).
+Security note with TPM2: Clevis allows anyone with root access to fetch sufficent private data to decrypt the drive. Protect the root account. With TPM1.2 Mortar leverages READ_STCLEAR to make this more difficult (thanks morbitzer). I'm investigating a way to make tpm2 work *without* clevis down the road.  
+
+Note on updates: Unless there is a security issue that is remediated by a newer version of this framework, I highly advise that you _not_ upgrade unless you are experiencing issues. If your system works, decrypts, and survives kernel and initramfs upgrades, leave it. The majority of changes here are for new supported distros, development scalability, and streamlining of data ingestion that may be incompatible with the version of mortar you are using. If you've freshly installed, by all means pull the latest version and use it. If you're sitting pretty, stay put. <3  
 
 ## How it works.  
 
@@ -87,19 +98,28 @@ You can also run it interactively:
 ## Reboot and ensure that the new EFI file boots correctly.  
 Exactly what it says. If you opted against/efibootmgr failed to automatically install the boot entry, you should now add the EFI to your BIOS's boot list.  
 
-## (more to come)
-High level of the rest of the steps:  
+## Set up Secure Boot
 
- - Measure TPM PCR values and store for later comparison.  
- - Install secureboot keys and enable secureboot. Put a password on the BIOS.  
- - Enroll any hashes that need to be enrolled (especially if booting from a raid-controller-hosted disk, system may not boot without this).  
+Measure TPM PCR values and store for later comparison.  
+ - TPM2: `tpm2_pcrlist` Look at 7 and 1 especially.  
+
+Reboot into the BIOS:  
+ - Put your BIOS's Secure Boot setting into "Audit" mode if possiblem then reboot into your OS and run `./2-`. If it does not have an audit mode, you will need to manually install your Secure Boot keys. They are located in /etc/mortar/private/*.crt you _may_ need to convert them to DER format first.  
+ - Enroll any hashes that need to be enrolled (especially if booting from a raid-controller-hosted disk, system may not boot without this. NVIDIA proprietary graphics may also cause issues.).  
+ - Put a password on the BIOS.  
  - Boot the system with secureboot on (and pray).  
- - Measure PCR values now that secureboot is set up.  
+
+
+ - Measure PCR values now that secureboot is set up. (PCR7 may be the same depending on if you enrolled additional hashes or not, PCR1 should have changed since BIOS settings were modified.)  
  - optional steps:  
     - Regenerate the signed EFI. This will move the first one to .old.  
     - Reboot, and reread the PCR values. This will let you see what stays the same when booting different EFI files that are both validly signed.  
- - Run the luks script for the TPM version being used.  
- - Update initramfs.  
+
+## Set up the TPM-Stored LUKS Key
+ 
+ - Make sure you've set a BIOS password and made any necessary settings changes to your BIOS before the next step.  
+ - Run the luks script for the TPM version being used. `./3-`  
+ - Update initramfs. (done by the script)  
  - Regenerate EFI.  
  - Reboot and pray.  
  - If it all works, then you just booted to a login prompt with the disk being automatically decrypted.  
@@ -107,13 +127,17 @@ High level of the rest of the steps:
 ## Remove boot partition risk.
 `mkdir /boot2`  
 If EFI partition is inside /boot unmount it.  
-Copy /boot to /boot2  
-`cp -r /boot /boot2`  
+`umount -l /boot/efi`  
+Copy /boot contents to /boot2  
+`cp -r /boot/* /boot2`  
 unmount /boot  
 `mv /boot2 /boot`  
-Remove /boot from /etc/fstab  
+**Remove /boot from /etc/fstab**  
 remount your EFI partition if it was inside /boot  
+`mount -a`  
 Optionally regenerate your EFI just to make sure it can still find your kernel and initramfs.  
 
 ## TODO:  
 Add functionality that stores an OTP private key in the TPM instead of a LUKS key. This would allow an end user to leverage a TPM for boot integrity checking without having to trust it to securely store keys.  
+
+Investigate feasibility of storing the entire luks header in the nvram of the TPM module.  

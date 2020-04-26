@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Debian
+# Noah Bliss
 
 ENVFILE="/etc/mortar/mortar.env" #Don't want to use $0 since we are using source against this file all over the place.
 CMDLINEFILE="/etc/mortar/cmdline.conf"
@@ -14,34 +14,14 @@ chmod go-rwx -R "$WORKING_DIR"
 # Figure out our distribuition. 
 source /etc/os-release
 
-# Debian
-if [ "$ID" == "debian" ]; then
-	apt-get update
-	apt-get install \
-		binutils \
-		efitools \
-		uuid-runtime
-
-	echo "Installed Debian dependencies."
-	echo "If you have a TPM 1.2 module you also need to run:"
-	echo "apt-get install tpm-tools trousers"
-	echo "If you have a TPM 2 module you also need to run:"
-	echo "apt-get install tpm2-tools clevis-tpm2 clevis-luks"
+# Install prerequisite packages. 
+if [ -f "res/$ID/prereqs.sh" ]; then 
+	source "res/$ID/prereqs.sh"; 
+else
+	echo "Could not find a prerequisite installer for $ID. Please only press enter if you want to continue at your own risk."
+	read -p "Press enter to continue." asdf
 fi
 
-# Arch
-if [ "$ID" == "arch" ]; then
-	pacman -Sy binutils \
-		efitools \
-		util-linux \
-		sbsigntools
-
-	echo "Installed Arch dependencies."
-        echo "If you have a TPM 1.2 module you also need to run:"
-        echo "Don't know the needed packages yet." #echo "pacman -Sy tpm-tools trousers"
-        echo "If you have a TPM 2 module you also need to run:"
-        echo "pacman -Sy tpm2-tools clevis"
-fi
 
 # Install the env file with a random key_uuid if it doesn't exist.
 if ! (command -v uuidgen >/dev/null); then echo "Cannot find uuidgen tool."; exit 1; fi
@@ -50,6 +30,9 @@ if ! [ -f "$ENVFILE" ]; then echo "Generating new KEY_UUID and installing mortar
 # Install cmdline.conf
 if ! [ -f "$CMDLINEFILE" ]; then echo "No CMDLINE options file found. Using currently running cmdline options from /proc/cmdline"; cat /proc/cmdline > "$CMDLINEFILE"; else echo "cmdline.conf already installed in $WORKING_DIR"; fi
 echo "Make sure to update the installed mortar.env with your TPM version and ensure all the paths are correct."
+if grep " splash" "$CMDLINEFILE" >/dev/null; then echo "WARNING - \"splash\" detected in "$CMDLINEFILE" this this may hide boot-time mortar output!"; fi
+if grep " quiet" "$CMDLINEFILE" >/dev/null; then echo "WARNING - \"quiet\" detected in "$CMDLINEFILE" this this may hide boot-time mortar output!"; fi
+
 
 # Install the efi signing script.
 cp bin/mortar-compilesigninstall /usr/local/sbin/mortar-compilesigninstall
